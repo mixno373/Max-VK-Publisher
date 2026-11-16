@@ -3,6 +3,7 @@ import requests
 
 RUTUBE_API = "https://rutube.ru/api"
 
+
 def upload_video_to_rutube(token, channel_id, video_path, title, description=""):
     if not token:
         return "❌ Rutube: не задан токен"
@@ -12,7 +13,8 @@ def upload_video_to_rutube(token, channel_id, video_path, title, description="")
                 f"{RUTUBE_API}/video/upload/",
                 headers={"Authorization": f"Bearer {token}"},
                 files={"file": f},
-                data={"title": title, "description": description, "channel_id": channel_id or ""},
+                data={"title": title, "description": description,
+                      "channel_id": channel_id or ""},
                 timeout=120,
             )
         if resp.status_code in (200, 201):

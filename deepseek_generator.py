@@ -2,16 +2,13 @@
 from openai import OpenAI
 from database import get_setting
 
+
 def generate_post_text(topic: str, prompt_suffix: str = "") -> str:
-    """Генерирует текст поста через DeepSeek API."""
     api_key = get_setting("deepseek_api_key")
     if not api_key:
         return "❌ Не задан API-ключ DeepSeek. Настройте его в GUI."
 
-    client = OpenAI(
-        api_key=api_key,
-        base_url="https://api.deepseek.com",
-    )
+    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
     system_prompt = (
         "Ты — опытный SMM-специалист. Напиши текст для поста в социальных сетях. "
         "Стиль: живой, вовлекающий, без излишнего официоза. "

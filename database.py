@@ -3,14 +3,54 @@ import sqlite3
 import json
 from config import DB_PATH
 
+
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
+
+def _migrate_targets(conn):
+    """Миграция старой схемы targets → новой (с раздельными токенами)."""
+    try:
+        rows = conn.execute("PRAGMA table_info(targets)").fetchall()
+    except sqlite3.OperationalError:
+        return
+
+    cols = [r["name"] for r in rows]
+    if not cols or "vk_token" in cols:
+        return
+    if "token" not in cols:
+        return
+
+    for col in ("vk_token", "vk_group_id", "max_chat_id",
+                "rutube_token", "rutube_channel_id"):
+        try:
+            conn.execute(f"ALTER TABLE targets ADD COLUMN {col} TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+    conn.execute("""
+        UPDATE targets SET
+            vk_token          = CASE WHEN type='vk'     THEN token      ELSE vk_token END,
+            vk_group_id       = CASE WHEN type='vk'     THEN group_id   ELSE vk_group_id END,
+            max_chat_id       = CASE WHEN type='max'    THEN chat_id    ELSE max_chat_id END,
+            rutube_token      = CASE WHEN type='rutube' THEN token      ELSE rutube_token END,
+            rutube_channel_id = CASE WHEN type='rutube' THEN channel_id ELSE rutube_channel_id END
+    """)
+
+    if sqlite3.sqlite_version_info >= (3, 35, 0):
+        for col in ("token", "group_id", "chat_id", "channel_id"):
+            try:
+                conn.execute(f"ALTER TABLE targets DROP COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass
+
+
 def init_db():
     with get_conn() as conn:
+        _migrate_targets(conn)
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -19,20 +59,15 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        -- Каналы назначения: у каждого типа — свои поля
         CREATE TABLE IF NOT EXISTS targets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            type TEXT NOT NULL,              -- 'vk' | 'max' | 'rutube'
+            type TEXT NOT NULL,
             name TEXT NOT NULL,
-
             vk_token TEXT,
             vk_group_id TEXT,
-
             max_chat_id TEXT,
-
             rutube_token TEXT,
             rutube_channel_id TEXT,
-
             UNIQUE(type, name)
         );
 
@@ -54,6 +89,7 @@ def init_db():
         );
         """)
 
+
 # ---------- Пользователи ----------
 def get_user(user_id):
     with get_conn() as c:
@@ -61,8 +97,10 @@ def get_user(user_id):
 
 def add_pending_user(user_id, username=""):
     with get_conn() as c:
-        c.execute("INSERT OR IGNORE INTO users (user_id, username, role) VALUES (?, ?, 'pending')",
-                  (user_id, username))
+        c.execute(
+            "INSERT OR IGNORE INTO users (user_id, username, role) VALUES (?, ?, 'pending')",
+            (user_id, username),
+        )
 
 def approve_user(user_id, role="author"):
     with get_conn() as c:
@@ -80,11 +118,14 @@ def get_pending_users():
     with get_conn() as c:
         return c.execute("SELECT * FROM users WHERE role='pending'").fetchall()
 
+
 # ---------- Каналы назначения ----------
 def list_targets(type_=None):
     with get_conn() as c:
         if type_:
-            return c.execute("SELECT * FROM targets WHERE type=? ORDER BY name", (type_,)).fetchall()
+            return c.execute(
+                "SELECT * FROM targets WHERE type=? ORDER BY name", (type_,)
+            ).fetchall()
         return c.execute("SELECT * FROM targets ORDER BY type, name").fetchall()
 
 def get_target(target_id):
@@ -92,18 +133,11 @@ def get_target(target_id):
         return c.execute("SELECT * FROM targets WHERE id=?", (target_id,)).fetchone()
 
 def upsert_target(type_, name, target_id=None, **kwargs):
-    """
-    Разрешённые kwargs в зависимости от type_:
-      vk:     vk_token, vk_group_id
-      max:    max_chat_id
-      rutube: rutube_token, rutube_channel_id
-    Остальные поля сбрасываются в NULL, чтобы не тащить мусор между типами.
-    """
-    vk_token = kwargs.get("vk_token") if type_ == "vk" else None
-    vk_group_id = kwargs.get("vk_group_id") if type_ == "vk" else None
-    max_chat_id = kwargs.get("max_chat_id") if type_ == "max" else None
-    rutube_token = kwargs.get("rutube_token") if type_ == "rutube" else None
-    rutube_channel_id = kwargs.get("rutube_channel_id") if type_ == "rutube" else None
+    vk_token         = kwargs.get("vk_token")         if type_ == "vk"     else None
+    vk_group_id      = kwargs.get("vk_group_id")      if type_ == "vk"     else None
+    max_chat_id      = kwargs.get("max_chat_id")      if type_ == "max"    else None
+    rutube_token     = kwargs.get("rutube_token")     if type_ == "rutube" else None
+    rutube_channel_id= kwargs.get("rutube_channel_id")if type_ == "rutube" else None
 
     with get_conn() as c:
         if target_id:
@@ -127,6 +161,7 @@ def upsert_target(type_, name, target_id=None, **kwargs):
 def delete_target(target_id):
     with get_conn() as c:
         c.execute("DELETE FROM targets WHERE id=?", (target_id,))
+
 
 # ---------- Категории ----------
 def list_categories():
@@ -158,6 +193,7 @@ def delete_category(name):
         c.execute("DELETE FROM category_targets WHERE category_name=?", (name,))
         c.execute("DELETE FROM categories WHERE name=?", (name,))
 
+
 # ---------- Настройки ----------
 def get_setting(key, default=""):
     with get_conn() as c:
@@ -166,4 +202,5 @@ def get_setting(key, default=""):
 
 def set_setting(key, value):
     with get_conn() as c:
-        c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
+        c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                  (key, value))

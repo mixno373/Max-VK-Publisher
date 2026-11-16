@@ -2,8 +2,8 @@
 import vk_api
 from vk_api.upload import VkUpload
 
+
 def publish_to_vk(token, group_id, text, media_paths=None):
-    """Публикует в конкретную VK-группу с её токеном."""
     if not token:
         return "❌ VK: не задан токен"
     try:
@@ -25,7 +25,7 @@ def publish_to_vk(token, group_id, text, media_paths=None):
             except Exception as e:
                 return f"❌ VK (фото): {e}"
         elif low.endswith((".mp4", ".mov", ".avi")):
-            return "⚠️ VK: загрузка видео не реализована в этой версии"
+            return "⚠️ VK: загрузка видео не реализована"
 
     try:
         post = vk.wall.post(
