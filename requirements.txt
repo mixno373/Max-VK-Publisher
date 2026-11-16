@@ -1,8 +1,2 @@
-maxapi>=0.12.0
-vk_api>=11.9.9
-PySide6>=6.6.0
-qasync>=0.27.0
-APScheduler>=3.10.0
-openai>=1.12.0
-requests>=2.31.0
-Pillow>=10.0.0
+requests>=2.32,<3
+cryptography>=43,<47
