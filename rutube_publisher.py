@@ -1,38 +1,23 @@
 # rutube_publisher.py
 import requests
-from database import get_setting
 
-RUTUBE_API_BASE = "https://rutube.ru/api"
+RUTUBE_API = "https://rutube.ru/api"
 
-def upload_video_to_rutube(video_path: str, title: str, description: str = "") -> str:
-    """
-    Загружает видео на Rutube.
-    Возвращает video_id или сообщение об ошибке.
-    Примечание: Rutube API может требовать предварительной авторизации.
-    """
-    token = get_setting("rutube_token")
+def upload_video_to_rutube(token, channel_id, video_path, title, description=""):
     if not token:
-        return "❌ Не задан токен Rutube."
-
-    # Пример endpoint (может отличаться в зависимости от актуальной документации)
-    upload_url = f"{RUTUBE_API_BASE}/video/upload/"
-    headers = {"Authorization": f"Bearer {token}"}
-
+        return "❌ Rutube: не задан токен"
     try:
         with open(video_path, "rb") as f:
-            files = {"file": f}
-            data = {"title": title, "description": description}
-            resp = requests.post(upload_url, headers=headers, files=files, data=data, timeout=60)
-
+            resp = requests.post(
+                f"{RUTUBE_API}/video/upload/",
+                headers={"Authorization": f"Bearer {token}"},
+                files={"file": f},
+                data={"title": title, "description": description, "channel_id": channel_id or ""},
+                timeout=120,
+            )
         if resp.status_code in (200, 201):
-            video_id = resp.json().get("video_id")
-            return f"✅ Rutube: видео загружено (ID: {video_id})"
-        else:
-            return f"❌ Ошибка Rutube: HTTP {resp.status_code} – {resp.text[:200]}"
+            vid = resp.json().get("video_id", "?")
+            return f"✅ Rutube: видео {vid}"
+        return f"❌ Rutube: HTTP {resp.status_code}"
     except Exception as e:
-        return f"❌ Ошибка Rutube: {e}"
-
-def publish_text_to_rutube(text: str) -> str:
-    """Публикация текстового поста (если поддерживается)."""
-    # В Rutube нет публикации чисто текстовых постов, только видео с описанием.
-    return "⚠️ Rutube поддерживает только видео с описанием. Текст будет использован как описание."
+        return f"❌ Rutube: {e}"
