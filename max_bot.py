@@ -2,8 +2,12 @@
 import asyncio
 import os
 from datetime import datetime
-from maxapi import Bot, Dispatcher, Command, InlineKeyboardBuilder
-from maxapi.types import MessageCreated, CallbackQuery
+
+# Правильные импорты для maxapi
+from maxapi import Bot, Dispatcher
+from maxapi.types import Command, MessageCreated, CallbackQuery
+from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
+
 from database import (
     init_db, get_user, add_pending_user, get_categories,
     get_setting, set_setting,
