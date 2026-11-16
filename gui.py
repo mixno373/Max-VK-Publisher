@@ -108,78 +108,129 @@ class MainWindow(QMainWindow):
         w = QWidget(); l = QVBoxLayout(w)
 
         self.type_combo = QComboBox(); self.type_combo.addItems(["vk", "max", "rutube"])
-        self.type_combo.currentTextChanged.connect(lambda _: self._refresh_targets())
+        self.type_combo.currentTextChanged.connect(self._on_type_changed)
         l.addWidget(QLabel("Тип канала:")); l.addWidget(self.type_combo)
 
         self.targets_list = QListWidget()
         self.targets_list.currentItemChanged.connect(self._load_target_into_form)
         l.addWidget(self.targets_list)
 
-        # Форма
-        self.t_name = QLineEdit(); self.t_token = QLineEdit()
-        self.t_group_id = QLineEdit(); self.t_chat_id = QLineEdit()
-        self.t_channel_id = QLineEdit()
-        form = QFormLayout()
-        form.addRow("Имя:", self.t_name)
-        form.addRow("Token (VK/Rutube):", self.t_token)
-        form.addRow("VK group_id:", self.t_group_id)
-        form.addRow("MAX chat_id:", self.t_chat_id)
-        form.addRow("Rutube channel_id:", self.t_channel_id)
-        l.addLayout(form)
+        # --- Поля под каждый тип ---
+        self.t_name = QLineEdit()
+
+        # VK
+        self.t_vk_token = QLineEdit()
+        self.t_vk_group_id = QLineEdit()
+
+        # MAX
+        self.t_max_chat_id = QLineEdit()
+
+        # Rutube
+        self.t_rutube_token = QLineEdit()
+        self.t_rutube_channel_id = QLineEdit()
+
+        self._form = QFormLayout()
+        self._form.addRow("Имя:", self.t_name)
+        self._form.addRow("VK token:", self.t_vk_token)
+        self._form.addRow("VK group_id:", self.t_vk_group_id)
+        self._form.addRow("MAX chat_id:", self.t_max_chat_id)
+        self._form.addRow("Rutube token:", self.t_rutube_token)
+        self._form.addRow("Rutube channel_id:", self.t_rutube_channel_id)
+        l.addLayout(self._form)
 
         h = QHBoxLayout()
-        b_add = QPushButton("➕ Добавить/Сохранить"); b_add.clicked.connect(self._save_target)
+        b_save = QPushButton("➕ Добавить/Сохранить"); b_save.clicked.connect(self._save_target)
         b_del = QPushButton("🗑 Удалить"); b_del.clicked.connect(self._delete_target)
-        b_clear = QPushButton("✖ Очистить форму")
-        b_clear.clicked.connect(lambda: [self.t_name.clear(), self.t_token.clear(),
-                                          self.t_group_id.clear(), self.t_chat_id.clear(),
-                                          self.t_channel_id.clear()])
-        h.addWidget(b_add); h.addWidget(b_del); h.addWidget(b_clear)
+        b_clear = QPushButton("✖ Очистить форму"); b_clear.clicked.connect(self._clear_form)
+        h.addWidget(b_save); h.addWidget(b_del); h.addWidget(b_clear)
         l.addLayout(h)
 
         self._current_target_id = None
+        self._on_type_changed(self.type_combo.currentText())
         self._refresh_targets()
         self.tabs.addTab(w, "Каналы")
+
+
+    def _on_type_changed(self, tp):
+        """Показываем только поля, относящиеся к текущему типу канала."""
+        show_vk = tp == "vk"
+        show_max = tp == "max"
+        show_rutube = tp == "rutube"
+
+        for widget, visible in [
+            (self.t_vk_token, show_vk),
+            (self.t_vk_group_id, show_vk),
+            (self.t_max_chat_id, show_max),
+            (self.t_rutube_token, show_rutube),
+            (self.t_rutube_channel_id, show_rutube),
+        ]:
+            # Скрываем и подпись, и поле
+            for role in (QFormLayout.LabelRole, QFormLayout.FieldRole):
+                item = self._form.itemAt(self._form.getWidgetPosition(widget)[0], role) \
+                    if hasattr(self._form, "getWidgetPosition") else None
+            widget.setVisible(visible)
+
+        self._current_target_id = None
+        self._refresh_targets()
+
 
     def _refresh_targets(self):
         self.targets_list.clear()
         for t in list_targets(self.type_combo.currentText()):
-            display = f"#{t['id']} {t['name']}"
-            it = QListWidgetItem(display)
+            # В списке показываем, что настроено
+            if t["type"] == "vk":
+                tail = f"group_id={t['vk_group_id']}"
+            elif t["type"] == "max":
+                tail = f"chat_id={t['max_chat_id']}"
+            else:
+                tail = f"channel_id={t['rutube_channel_id']}"
+            it = QListWidgetItem(f"#{t['id']} {t['name']} ({tail})")
             it.setData(Qt.UserRole, t["id"])
             self.targets_list.addItem(it)
+
 
     def _load_target_into_form(self, item, _):
         if not item:
             return
         tid = item.data(Qt.UserRole)
-        for t in list_targets():
-            if t["id"] == tid:
-                self._current_target_id = tid
-                self.t_name.setText(t["name"] or "")
-                self.t_token.setText(t["token"] or "")
-                self.t_group_id.setText(t["group_id"] or "")
-                self.t_chat_id.setText(t["chat_id"] or "")
-                self.t_channel_id.setText(t["channel_id"] or "")
-                break
+        t = get_target(tid)
+        if not t:
+            return
+        self._current_target_id = tid
+        self.t_name.setText(t["name"] or "")
+        self.t_vk_token.setText(t["vk_token"] or "")
+        self.t_vk_group_id.setText(t["vk_group_id"] or "")
+        self.t_max_chat_id.setText(t["max_chat_id"] or "")
+        self.t_rutube_token.setText(t["rutube_token"] or "")
+        self.t_rutube_channel_id.setText(t["rutube_channel_id"] or "")
+
 
     def _save_target(self):
+        tp = self.type_combo.currentText()
         name = self.t_name.text().strip()
         if not name:
             QMessageBox.warning(self, "!", "Укажите имя канала.")
             return
-        upsert_target(
-            type_=self.type_combo.currentText(),
-            name=name,
-            token=self.t_token.text().strip() or None,
-            group_id=self.t_group_id.text().strip() or None,
-            chat_id=self.t_chat_id.text().strip() or None,
-            channel_id=self.t_channel_id.text().strip() or None,
-            target_id=self._current_target_id,
-        )
+
+        kwargs = {}
+        if tp == "vk":
+            kwargs = {
+                "vk_token": self.t_vk_token.text().strip() or None,
+                "vk_group_id": self.t_vk_group_id.text().strip() or None,
+            }
+        elif tp == "max":
+            kwargs = {"max_chat_id": self.t_max_chat_id.text().strip() or None}
+        elif tp == "rutube":
+            kwargs = {
+                "rutube_token": self.t_rutube_token.text().strip() or None,
+                "rutube_channel_id": self.t_rutube_channel_id.text().strip() or None,
+            }
+
+        upsert_target(type_=tp, name=name, target_id=self._current_target_id, **kwargs)
         self._current_target_id = None
         self._refresh_targets()
         QMessageBox.information(self, "OK", "Канал сохранён.")
+
 
     def _delete_target(self):
         item = self.targets_list.currentItem()
@@ -191,6 +242,13 @@ class MainWindow(QMainWindow):
             self._current_target_id = None
             self._refresh_targets()
 
+
+    def _clear_form(self):
+        for w in (self.t_name, self.t_vk_token, self.t_vk_group_id,
+                self.t_max_chat_id, self.t_rutube_token, self.t_rutube_channel_id):
+            w.clear()
+        self._current_target_id = None
+        
     # ===== Категории =====
     def _build_categories_tab(self):
         w = QWidget(); l = QVBoxLayout(w)

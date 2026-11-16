@@ -19,27 +19,28 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        -- Один бот MAX глобально (токен в settings)
-
-        -- Каналы назначения (куда постить)
+        -- Каналы назначения: у каждого типа — свои поля
         CREATE TABLE IF NOT EXISTS targets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            type TEXT NOT NULL,           -- 'vk' / 'max' / 'rutube'
-            name TEXT NOT NULL,           -- человекочитаемое имя
-            token TEXT,                   -- VK access_token / Rutube token
-            group_id TEXT,                -- VK group_id
-            chat_id TEXT,                 -- MAX chat_id
-            channel_id TEXT,              -- Rutube channel_id
+            type TEXT NOT NULL,              -- 'vk' | 'max' | 'rutube'
+            name TEXT NOT NULL,
+
+            vk_token TEXT,
+            vk_group_id TEXT,
+
+            max_chat_id TEXT,
+
+            rutube_token TEXT,
+            rutube_channel_id TEXT,
+
             UNIQUE(type, name)
         );
 
-        -- Категории
         CREATE TABLE IF NOT EXISTS categories (
             name TEXT PRIMARY KEY,
-            links TEXT                    -- JSON list
+            links TEXT
         );
 
-        -- M:N категория ↔ канал назначения
         CREATE TABLE IF NOT EXISTS category_targets (
             category_name TEXT NOT NULL,
             target_id INTEGER NOT NULL,
@@ -86,17 +87,41 @@ def list_targets(type_=None):
             return c.execute("SELECT * FROM targets WHERE type=? ORDER BY name", (type_,)).fetchall()
         return c.execute("SELECT * FROM targets ORDER BY type, name").fetchall()
 
-def upsert_target(type_, name, token=None, group_id=None, chat_id=None, channel_id=None, target_id=None):
+def get_target(target_id):
+    with get_conn() as c:
+        return c.execute("SELECT * FROM targets WHERE id=?", (target_id,)).fetchone()
+
+def upsert_target(type_, name, target_id=None, **kwargs):
+    """
+    Разрешённые kwargs в зависимости от type_:
+      vk:     vk_token, vk_group_id
+      max:    max_chat_id
+      rutube: rutube_token, rutube_channel_id
+    Остальные поля сбрасываются в NULL, чтобы не тащить мусор между типами.
+    """
+    vk_token = kwargs.get("vk_token") if type_ == "vk" else None
+    vk_group_id = kwargs.get("vk_group_id") if type_ == "vk" else None
+    max_chat_id = kwargs.get("max_chat_id") if type_ == "max" else None
+    rutube_token = kwargs.get("rutube_token") if type_ == "rutube" else None
+    rutube_channel_id = kwargs.get("rutube_channel_id") if type_ == "rutube" else None
+
     with get_conn() as c:
         if target_id:
-            c.execute("""UPDATE targets SET type=?, name=?, token=?, group_id=?, chat_id=?, channel_id=?
+            c.execute("""UPDATE targets SET
+                            type=?, name=?,
+                            vk_token=?, vk_group_id=?,
+                            max_chat_id=?,
+                            rutube_token=?, rutube_channel_id=?
                          WHERE id=?""",
-                      (type_, name, token, group_id, chat_id, channel_id, target_id))
+                      (type_, name, vk_token, vk_group_id,
+                       max_chat_id, rutube_token, rutube_channel_id, target_id))
             return target_id
-        cur = c.execute(
-            """INSERT INTO targets (type, name, token, group_id, chat_id, channel_id)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (type_, name, token, group_id, chat_id, channel_id))
+        cur = c.execute("""INSERT INTO targets
+                            (type, name, vk_token, vk_group_id,
+                             max_chat_id, rutube_token, rutube_channel_id)
+                           VALUES (?,?,?,?,?,?,?)""",
+                        (type_, name, vk_token, vk_group_id,
+                         max_chat_id, rutube_token, rutube_channel_id))
         return cur.lastrowid
 
 def delete_target(target_id):
@@ -114,10 +139,9 @@ def get_category(name):
         if not row:
             return None
         links = json.loads(row["links"]) if row["links"] else []
-        targets = c.execute(
-            """SELECT t.* FROM targets t
-               JOIN category_targets ct ON ct.target_id = t.id
-               WHERE ct.category_name = ?""", (name,)).fetchall()
+        targets = c.execute("""SELECT t.* FROM targets t
+                               JOIN category_targets ct ON ct.target_id = t.id
+                               WHERE ct.category_name = ?""", (name,)).fetchall()
         return {"name": row["name"], "links": links, "targets": targets}
 
 def save_category(name, links, target_ids):
